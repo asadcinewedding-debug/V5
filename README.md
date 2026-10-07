@@ -15,3 +15,5 @@ Core:
 - Batch TIFF output for Lightroom Classic
 
 A Replicate API token is required for the generative model.
+
+Build status: V5 Windows workflow enabled.
