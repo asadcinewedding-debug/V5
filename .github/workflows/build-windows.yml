@@ -55,7 +55,7 @@ jobs:
         run: |
           Remove-Item -Recurse -Force dist -ErrorAction SilentlyContinue
           dotnet publish installer/Installer.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o dist
-          $exe = Join-Path $PWD 'dist/AN-AI-Relight-V5-Setup.exe'
+          $exe = Join-Path $PWD 'dist/AN-AI-Relight-V5.2-Setup.exe'
           if (-not (Test-Path $exe)) { throw 'V5 installer EXE was not generated.' }
           Get-FileHash $exe -Algorithm SHA256 | Format-List | Out-File dist/SHA256.txt
           Get-Item $exe | Format-List Name,Length,FullName
@@ -63,7 +63,7 @@ jobs:
       - name: Upload V5 installer
         uses: actions/upload-artifact@v4
         with:
-          name: AN-AI-Relight-V5-Windows
+          name: AN-AI-Relight-V5.2-Windows
           path: |
             dist/AN-AI-Relight-V5-Setup.exe
             dist/SHA256.txt
