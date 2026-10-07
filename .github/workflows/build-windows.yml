@@ -26,7 +26,7 @@ jobs:
         shell: pwsh
         run: |
           python -m pip install --upgrade pip
-          python -m pip install pyinstaller numpy opencv-python-headless pillow onnxruntime replicate requests
+          python -m pip install pyinstaller numpy opencv-python-headless pillow onnxruntime gradio_client
           New-Item -ItemType Directory -Force -Path build_assets | Out-Null
 
           Invoke-WebRequest -Uri 'https://github.com/yakhyo/modnet/releases/download/weights/modnet_photographic.onnx' -OutFile 'build_assets/modnet_photographic.onnx'
@@ -37,7 +37,7 @@ jobs:
 
           pyinstaller --noconfirm --clean --onefile --name relight_engine `
             --collect-all onnxruntime `
-            --collect-all replicate `
+            --collect-all gradio_client `
             --add-data 'build_assets/modnet_photographic.onnx;models' `
             --add-data 'build_assets/face_detection_yunet_2023mar.onnx;models' `
             payload/relight_engine.py
