@@ -3,13 +3,13 @@ import argparse, os, sys, math, tempfile
 import cv2
 import numpy as np
 import onnxruntime as ort
-import replicate
+from gradio_client import Client, handle_file
 from PIL import Image, ImageCms
 
 ROOT=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parent))
 cv2.setNumThreads(2)
 
-MODEL="zsxkib/ic-light:d41bcb10d8c159868f4cfbd7c6a2ca01484f7d39e4613419d5952c61562f1ba7"
+SPACE="lllyasviel/IC-Light"
 
 PROMPTS={
     "cinematic_warm":"cinematic warm portrait lighting, premium wedding photography, elegant amber highlights, soft dimensional shadows, realistic skin, luxurious atmosphere, natural photographic color",
@@ -133,8 +133,30 @@ def fit_generation_size(w,h):
     nw=min(nw,1024); nh=min(nh,1024)
     return nw,nh
 
-def run_iclight(path,cfg,token):
-    os.environ["REPLICATE_API_TOKEN"]=token
+def _extract_gallery_path(value):
+    if isinstance(value, str):
+        p=Path(value)
+        if p.exists():
+            return str(p)
+        return None
+    if isinstance(value, dict):
+        for key in ("path","name","url"):
+            v=value.get(key)
+            if isinstance(v,str) and Path(v).exists():
+                return v
+        for v in value.values():
+            p=_extract_gallery_path(v)
+            if p:
+                return p
+        return None
+    if isinstance(value,(list,tuple)):
+        for v in value:
+            p=_extract_gallery_path(v)
+            if p:
+                return p
+    return None
+
+def run_iclight(path,cfg):
     im=Image.open(path)
     w,h=im.size
     gw,gh=fit_generation_size(w,h)
@@ -165,40 +187,34 @@ def run_iclight(path,cfg,token):
     else:
         prompt += ", coherent scene-wide illumination affecting subject and environment"
 
-    with open(path,"rb") as f:
-        output=replicate.run(
-            MODEL,
-            input={
-                "cfg":float(cfg_scale),
-                "steps":int(steps),
-                "width":int(gw),
-                "height":int(gh),
-                "prompt":prompt,
-                "light_source":LIGHT_MAP[cfg["lightSource"]],
-                "highres_scale":1.5,
-                "output_format":"png",
-                "subject_image":f,
-                "lowres_denoise":float(low_denoise),
-                "output_quality":100,
-                "appended_prompt":"best quality, photorealistic, realistic texture, preserve subject identity and composition",
-                "highres_denoise":float(high_denoise),
-                "negative_prompt":NEGATIVE,
-                "number_of_images":1
-            }
-        )
+    client=Client(SPACE,verbose=False)
+    result=client.predict(
+        handle_file(path),
+        prompt,
+        int(gw),
+        int(gh),
+        1,
+        12345,
+        int(steps),
+        "best quality, photorealistic, realistic texture, preserve subject identity and composition",
+        NEGATIVE,
+        float(cfg_scale),
+        1.5,
+        float(high_denoise),
+        float(low_denoise),
+        LIGHT_MAP[cfg["lightSource"]],
+        api_name="/process_relight"
+    )
 
-    item=output[0] if isinstance(output,(list,tuple)) else output
-    data=item.read() if hasattr(item,"read") else None
-    if data is None:
-        import requests
-        url=getattr(item,"url",item)
-        if callable(url): url=url()
-        r=requests.get(str(url),timeout=180)
-        r.raise_for_status()
-        data=r.content
+    gallery=result[1] if isinstance(result,(list,tuple)) and len(result)>1 else result
+    out_path=_extract_gallery_path(gallery)
+    if not out_path:
+        raise RuntimeError("Official IC-Light Space returned no image. The public queue may be busy or temporarily unavailable.")
 
-    arr=np.frombuffer(data,dtype=np.uint8)
-    gen=cv2.imdecode(arr,cv2.IMREAD_COLOR)
+    gen=cv2.imread(out_path,cv2.IMREAD_COLOR)
+    if gen is None:
+        data=np.fromfile(out_path,dtype=np.uint8)
+        gen=cv2.imdecode(data,cv2.IMREAD_COLOR)
     if gen is None:
         raise ValueError("Cannot decode IC-Light output")
     return gen
@@ -273,12 +289,7 @@ def main():
     ap=argparse.ArgumentParser()
     ap.add_argument("--manifest",required=True)
     ap.add_argument("--results",required=True)
-    ap.add_argument("--token-file",required=True)
     a=ap.parse_args()
-
-    token=Path(a.token_file).read_text(encoding="utf-8").strip()
-    if len(token)<10:
-        raise ValueError("Replicate API token is missing")
 
     lines=Path(a.manifest).read_text(encoding="utf-8").splitlines()
     if not lines or lines[0]!="ANAI_RELIGHT_V5_BATCH_1":
@@ -299,7 +310,7 @@ def main():
             alpha=matte.predict(orig)
             face=face_detector.mask(orig)
 
-            gen=run_iclight(inp,cfg,token)
+            gen=run_iclight(inp,cfg)
             out=local_tone_map(orig,gen,alpha,face,cfg)
 
             write_image(tif,out)
