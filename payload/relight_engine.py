@@ -3,7 +3,7 @@ import argparse, os, sys, math, tempfile
 import cv2
 import numpy as np
 import onnxruntime as ort
-from gradio_client import Client, handle_file
+import requests, json, time, mimetypes
 from PIL import Image, ImageCms
 
 ROOT=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parent))
@@ -133,27 +133,122 @@ def fit_generation_size(w,h):
     nw=min(nw,1024); nh=min(nh,1024)
     return nw,nh
 
-def _extract_gallery_path(value):
-    if isinstance(value, str):
-        p=Path(value)
-        if p.exists():
-            return str(p)
-        return None
-    if isinstance(value, dict):
-        for key in ("path","name","url"):
-            v=value.get(key)
-            if isinstance(v,str) and Path(v).exists():
+def _first_string(value):
+    if isinstance(value,str) and value:
+        return value
+    if isinstance(value,dict):
+        for k in ("path","name","url"):
+            v=value.get(k)
+            if isinstance(v,str) and v:
                 return v
         for v in value.values():
-            p=_extract_gallery_path(v)
-            if p:
-                return p
-        return None
+            s=_first_string(v)
+            if s:
+                return s
     if isinstance(value,(list,tuple)):
         for v in value:
-            p=_extract_gallery_path(v)
-            if p:
-                return p
+            s=_first_string(v)
+            if s:
+                return s
+    return None
+
+def _upload_to_space(base,path):
+    mime=mimetypes.guess_type(path)[0] or "image/jpeg"
+    with open(path,"rb") as f:
+        r=requests.post(
+            base+"/gradio_api/upload",
+            files={"files":(Path(path).name,f,mime)},
+            timeout=180
+        )
+    if r.status_code>=400:
+        # older Gradio fallback
+        with open(path,"rb") as f:
+            r=requests.post(
+                base+"/upload",
+                files={"files":(Path(path).name,f,mime)},
+                timeout=180
+            )
+    r.raise_for_status()
+    payload=r.json()
+    remote=_first_string(payload)
+    if not remote:
+        raise RuntimeError("IC-Light upload returned no remote file path")
+    return {
+        "path":remote,
+        "orig_name":Path(path).name,
+        "size":Path(path).stat().st_size,
+        "mime_type":mime,
+        "meta":{"_type":"gradio.FileData"}
+    }
+
+def _gradio_call(base,api_name,data):
+    endpoints=[
+        base+"/gradio_api/call/"+api_name,
+        base+"/call/"+api_name
+    ]
+    last=None
+    for endpoint in endpoints:
+        try:
+            r=requests.post(endpoint,json={"data":data},timeout=180)
+            if r.status_code>=400:
+                last=RuntimeError(f"{endpoint} returned HTTP {r.status_code}: {r.text[:300]}")
+                continue
+            info=r.json()
+            event_id=info.get("event_id") if isinstance(info,dict) else None
+            if not event_id:
+                last=RuntimeError("IC-Light call returned no event id")
+                continue
+
+            stream=requests.get(endpoint+"/"+event_id,stream=True,timeout=900)
+            if stream.status_code>=400:
+                last=RuntimeError(f"IC-Light result stream returned HTTP {stream.status_code}")
+                continue
+
+            event=None
+            result=None
+            for raw in stream.iter_lines(decode_unicode=True):
+                if not raw:
+                    continue
+                if raw.startswith("event:"):
+                    event=raw.split(":",1)[1].strip()
+                elif raw.startswith("data:"):
+                    body=raw.split(":",1)[1].strip()
+                    if body=="null":
+                        continue
+                    try:
+                        obj=json.loads(body)
+                    except Exception:
+                        obj=body
+                    if event in ("error","failed"):
+                        raise RuntimeError("IC-Light public Space error: "+str(obj)[:500])
+                    if event in ("complete","completed"):
+                        result=obj
+                        break
+                    # Some Gradio versions send completion data without an event label.
+                    if isinstance(obj,(list,tuple)) and len(obj)>=1:
+                        result=obj
+            if result is not None:
+                return result
+            last=RuntimeError("IC-Light result stream ended without output")
+        except Exception as e:
+            last=e
+    raise RuntimeError(str(last) if last else "IC-Light public Space request failed")
+
+def _download_result(value):
+    candidate=_first_string(value)
+    if not candidate:
+        return None
+    p=Path(candidate)
+    if p.exists():
+        return str(p)
+    if candidate.startswith("http://") or candidate.startswith("https://"):
+        r=requests.get(candidate,timeout=180)
+        r.raise_for_status()
+        suffix=Path(candidate.split("?",1)[0]).suffix or ".png"
+        fd,tmp=tempfile.mkstemp(suffix=suffix)
+        os.close(fd)
+        Path(tmp).write_bytes(r.content)
+        return tmp
     return None
 
 def run_iclight(path,cfg):
@@ -187,9 +282,10 @@ def run_iclight(path,cfg):
     else:
         prompt += ", coherent scene-wide illumination affecting subject and environment"
 
-    client=Client(SPACE,verbose=False)
-    result=client.predict(
-        handle_file(path),
+    base="https://lllyasviel-ic-light.hf.space"
+    uploaded=_upload_to_space(base,path)
+    data=[
+        uploaded,
         prompt,
         int(gw),
         int(gh),
@@ -202,19 +298,20 @@ def run_iclight(path,cfg):
         1.5,
         float(high_denoise),
         float(low_denoise),
-        LIGHT_MAP[cfg["lightSource"]],
-        api_name="/process_relight"
-    )
+        LIGHT_MAP[cfg["lightSource"]]
+    ]
+    result=_gradio_call(base,"process_relight",data)
 
+    # process_relight returns [preprocessed_foreground, gallery].
     gallery=result[1] if isinstance(result,(list,tuple)) and len(result)>1 else result
-    out_path=_extract_gallery_path(gallery)
+    out_path=_download_result(gallery)
     if not out_path:
-        raise RuntimeError("Official IC-Light Space returned no image. The public queue may be busy or temporarily unavailable.")
+        raise RuntimeError("IC-Light public Space returned no downloadable image")
 
     gen=cv2.imread(out_path,cv2.IMREAD_COLOR)
     if gen is None:
-        data=np.fromfile(out_path,dtype=np.uint8)
-        gen=cv2.imdecode(data,cv2.IMREAD_COLOR)
+        data_bytes=np.fromfile(out_path,dtype=np.uint8)
+        gen=cv2.imdecode(data_bytes,cv2.IMREAD_COLOR)
     if gen is None:
         raise ValueError("Cannot decode IC-Light output")
     return gen
