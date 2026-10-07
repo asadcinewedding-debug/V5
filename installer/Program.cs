@@ -34,7 +34,7 @@ public sealed class InstallerForm : Form
 
     public InstallerForm()
     {
-        Text = "AN AI Relight V5 — Generative Mood Installer";
+        Text = "AN AI Relight V5.2 — Generative Mood Installer";
         Width = 820;
         Height = 640;
         StartPosition = FormStartPosition.CenterScreen;
@@ -67,7 +67,7 @@ public sealed class InstallerForm : Form
         hero.Controls.Add(new Panel { Dock=DockStyle.Left, Width=7, BackColor=Cyan });
         hero.Controls.Add(new Panel { Dock=DockStyle.Right, Width=7, BackColor=Purple });
 
-        var title=L("AN AI RELIGHT V5",24f,FontStyle.Bold); title.Location=new Point(28,18);
+        var title=L("AN AI RELIGHT V5.2",24f,FontStyle.Bold); title.Location=new Point(28,18);
         var sub=L("Generative Mood Relight • Subject Unchanged",11f,FontStyle.Bold,TextMain); sub.Location=new Point(30,60);
         var badge=L("IC-LIGHT  •  SUBJECT LOCK  •  LIGHT + COLOR  •  BATCH",9f,FontStyle.Bold,Cyan); badge.Location=new Point(30,90);
         hero.Controls.Add(title); hero.Controls.Add(sub); hero.Controls.Add(badge);
@@ -92,11 +92,11 @@ public sealed class InstallerForm : Form
         var f3=L("●  Original subject detail / identity lock",9.5f); f3.Location=new Point(18,70);
         var f4=L("●  Whole-scene AI illumination + color field",9.5f); f4.Location=new Point(390,70);
         var f5=L("●  Face protection + structure preservation",9.5f); f5.Location=new Point(18,98);
-        var f6=L("●  Requires internet + your Replicate API token",9.5f,FontStyle.Bold,Amber); f6.Location=new Point(390,98);
+        var f6=L("●  No API token • Internet required for IC-Light",9.5f,FontStyle.Bold,Amber); f6.Location=new Point(390,98);
         features.Controls.Add(ft);features.Controls.Add(f1);features.Controls.Add(f2);features.Controls.Add(f3);features.Controls.Add(f4);features.Controls.Add(f5);features.Controls.Add(f6);
         root.Controls.Add(features);
 
-        installButton.Text="INSTALL AN AI RELIGHT V5";
+        installButton.Text="INSTALL AN AI RELIGHT V5.2";
         installButton.Width=750; installButton.Height=50;
         installButton.FlatStyle=FlatStyle.Flat; installButton.FlatAppearance.BorderSize=0;
         installButton.BackColor=Green; installButton.ForeColor=Color.White;
@@ -210,18 +210,18 @@ public sealed class InstallerForm : Form
             Log("V5 installation verified");
             Log("AN AI Edit was not modified");
             status.ForeColor=Green;
-            status.Text="✓ AN AI Relight V5 installed successfully";
+            status.Text="✓ AN AI Relight V5.2 installed successfully";
 
             MessageBox.Show(this,
-                "AN AI Relight V5 installed successfully.\n\nRestart Lightroom Classic, select photos, then open:\nFile > Plug-in Extras > AN AI Relight V5 — Generative Mood...\n\nA Replicate API token is required when you run V5.",
-                "AN AI Relight V5",MessageBoxButtons.OK,MessageBoxIcon.Information);
+                "AN AI Relight V5.2 installed successfully.\n\nRestart Lightroom Classic, select photos, then open:\nFile > Plug-in Extras > AN AI Relight V5.2 — Generative Mood...\n\nNo API token is required. Internet is required for the generative pass.",
+                "AN AI Relight V5.2",MessageBoxButtons.OK,MessageBoxIcon.Information);
         }
         catch(Exception ex)
         {
             status.ForeColor=Color.FromArgb(244,67,54);
             status.Text="✕ Installation failed";
             Log("ERROR: "+ex.Message);
-            MessageBox.Show(this,ex.Message,"AN AI Relight V5 — Installer Error",MessageBoxButtons.OK,MessageBoxIcon.Error);
+            MessageBox.Show(this,ex.Message,"AN AI Relight V5.2 — Installer Error",MessageBoxButtons.OK,MessageBoxIcon.Error);
         }
         finally
         {
