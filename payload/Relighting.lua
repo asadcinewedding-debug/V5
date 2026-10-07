@@ -41,8 +41,6 @@ function M.configure(ctx,count,prefs)
     p.faceProtection=95
     p.originalLight=20
     p.promptInfluence=55
-    p.saveToken=false
-    p.token=prefs.replicateToken or ''
     p.stack=true
     p.jpeg=false
     p.quality='high'
@@ -152,13 +150,11 @@ function M.configure(ctx,count,prefs)
         },
 
         f:group_box{
-            title='4  GENERATIVE SERVICE',
+            title='4  GENERATIVE SERVICE — NO API TOKEN',
             f:column{
                 spacing=f:control_spacing(),
-                f:static_text{title='Replicate API token (required for IC-Light generative relighting)',width_in_chars=78},
-                f:edit_field{value=View.bind('token'),width_in_chars=70},
-                f:checkbox{title='Save token in Lightroom plug-in preferences on this computer',value=View.bind('saveToken')},
-                f:static_text{title='Token is never written to the V5 report. If not saved, it is used only for this operation.',width_in_chars=78},
+                f:static_text{title='Uses the official public IC-Light Hugging Face Space. No Replicate account or API token is required.',width_in_chars=80,height_in_lines=2},
+                f:static_text{title='Internet is required. Public Space queue / availability may affect processing time.',width_in_chars=80},
             }
         },
 
@@ -194,15 +190,6 @@ function M.configure(ctx,count,prefs)
     assert(LIGHTS[p.lightSource],'Invalid light source')
     assert(p.quality=='high' or p.quality=='standard','Invalid quality')
 
-    local token=tostring(p.token or ''):gsub('^%s+',''):gsub('%s+$','')
-    assert(#token>10,'A Replicate API token is required for V5 generative relighting.')
-
-    if p.saveToken then
-        prefs.replicateToken=token
-    elseif prefs.replicateToken then
-        prefs.replicateToken=nil
-    end
-
     return {
         mode=p.mode,preset=p.preset,lightSource=p.lightSource,
         moodStrength=number(p.moodStrength,0,100,'AI mood strength'),
@@ -211,7 +198,7 @@ function M.configure(ctx,count,prefs)
         faceProtection=number(p.faceProtection,0,100,'Face protection'),
         originalLight=number(p.originalLight,0,100,'Original light retained'),
         promptInfluence=number(p.promptInfluence,0,100,'Prompt influence'),
-        token=token,stack=p.stack,jpeg=p.jpeg,quality=p.quality
+        stack=p.stack,jpeg=p.jpeg,quality=p.quality
     }
 end
 
@@ -285,13 +272,8 @@ function M.run(ctx,catalog,photos,skipped,config,prefs,write)
     ctx:addCleanupHandler(function() progress:done();Files.delete(root) end)
 
     local manifestPath=Path.child(root,'manifest.tsv')
-    local tokenPath=Path.child(root,'token.txt')
     local resultsPath=Path.child(root,'results.tsv')
     local logPath=Path.child(root,'engine.log')
-
-    local tf=assert(io.open(tokenPath,'wb'))
-    tf:write(config.token)
-    tf:close()
 
     local mf=assert(io.open(manifestPath,'wb'))
     mf:write('ANAI_RELIGHT_V5_BATCH_1\n')
@@ -338,12 +320,9 @@ function M.run(ctx,catalog,photos,skipped,config,prefs,write)
     local command=Engine.quote(engineExe)..
         ' --manifest '..Engine.quote(manifestPath)..
         ' --results '..Engine.quote(resultsPath)..
-        ' --token-file '..Engine.quote(tokenPath)..
         ' > '..Engine.quote(logPath)..' 2>&1'
 
     local status=Tasks.execute(Engine.wrap(command))
-    Files.delete(tokenPath)
-
     assert(Files.exists(resultsPath),'V5 engine did not return results.\n'..(Files.readFile(logPath) or ''))
 
     local rows={}
