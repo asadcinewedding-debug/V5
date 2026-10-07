@@ -65,7 +65,7 @@ jobs:
         with:
           name: AN-AI-Relight-V5.2-Windows
           path: |
-            dist/AN-AI-Relight-V5-Setup.exe
+            dist/AN-AI-Relight-V5.2-Setup.exe
             dist/SHA256.txt
           if-no-files-found: error
           retention-days: 30
