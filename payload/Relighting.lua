@@ -49,7 +49,7 @@ function M.configure(ctx,count,prefs)
         bind_to_object=p,
         spacing=f:control_spacing(),
 
-        f:static_text{title='AN AI RELIGHT V5 — GENERATIVE MOOD RELIGHT',font='<system/bold>',width_in_chars=84},
+        f:static_text{title='AN AI RELIGHT V5.2 — GENERATIVE MOOD RELIGHT',font='<system/bold>',width_in_chars=84},
         f:static_text{title='Subject unchanged • AI-generated lighting mood • Light + color focus',width_in_chars=84},
 
         f:group_box{
@@ -180,7 +180,7 @@ function M.configure(ctx,count,prefs)
     }
 
     if Dialogs.presentModalDialog{
-        title='AN AI Relight V5 — Generative Mood',
+        title='AN AI Relight V5.2.2 — Generative Mood',
         contents=content,
         actionVerb='Generate V5 Mood'
     }~='ok' then return nil end
@@ -204,7 +204,7 @@ end
 
 local function preflight()
     local exe=Path.child(_PLUGIN.path,Engine.executable())
-    assert(Files.exists(exe),'AN AI Relight V5 engine is missing. Run the V5 installer again.')
+    assert(Files.exists(exe),'AN AI Relight V5.2 engine is missing. Run the V5 installer again.')
     return exe
 end
 
@@ -267,7 +267,7 @@ function M.run(ctx,catalog,photos,skipped,config,prefs,write)
     local root=Path.child(Path.getStandardFilePath('temp'),'ANAI-Relight-V5-'..UUID.generateUUID())
     assert(Files.createAllDirectories(root),'Cannot create V5 temporary folder.')
 
-    local progress=Progress{title='AN AI Relight V5 - Generative Mood',functionContext=ctx}
+    local progress=Progress{title='AN AI Relight V5.2 - Generative Mood',functionContext=ctx}
     progress:setCancelable(true)
     ctx:addCleanupHandler(function() progress:done();Files.delete(root) end)
 
@@ -336,7 +336,7 @@ function M.run(ctx,catalog,photos,skipped,config,prefs,write)
 
     local imported,failed=0,#prepFailed
     local report={
-        'AN AI Relight V5 — Generative Mood',
+        'AN AI Relight V5.2.2 — Generative Mood',
         os.date('%Y-%m-%d %H:%M:%S'),
         'Mode: '..config.mode..' | Preset: '..config.preset..
         ' | Mood: '..config.moodStrength..
@@ -350,7 +350,7 @@ function M.run(ctx,catalog,photos,skipped,config,prefs,write)
         local row=rows[i]
         if row and row.state=='ok' and Files.exists(outputById[i]) then
             local ok,err=Tasks.pcall(function()
-                write(catalog,'AN AI Relight V5 - Import',function()
+                write(catalog,'AN AI Relight V5.2 - Import',function()
                     if config.stack then
                         catalog:addPhoto(outputById[i],photo,'above')
                     else
@@ -378,7 +378,7 @@ function M.run(ctx,catalog,photos,skipped,config,prefs,write)
     report[#report+1]='Failed: '..failed
     report[#report+1]='Skipped videos: '..skipped
     prefs.lastV5RelightReport=table.concat(report,'\n')
-    Dialogs.message('AN AI Relight V5',prefs.lastV5RelightReport,'info')
+    Dialogs.message('AN AI Relight V5.2',prefs.lastV5RelightReport,'info')
 end
 
 return M
