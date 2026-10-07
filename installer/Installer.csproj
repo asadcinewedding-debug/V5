@@ -5,11 +5,11 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>AN-AI-Relight-V5-Setup</AssemblyName>
+    <AssemblyName>AN-AI-Relight-V5.2-Setup</AssemblyName>
     <RootNamespace>ANAIRelightV5Setup</RootNamespace>
-    <Version>5.0.0</Version>
-    <FileVersion>5.0.0.0</FileVersion>
-    <AssemblyVersion>5.0.0.0</AssemblyVersion>
+    <Version>5.2.1</Version>
+    <FileVersion>5.2.1.0</FileVersion>
+    <AssemblyVersion>5.2.1.0</AssemblyVersion>
     <PublishSingleFile>true</PublishSingleFile>
     <SelfContained>true</SelfContained>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
