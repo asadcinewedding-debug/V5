@@ -4,6 +4,7 @@ import cv2
 import numpy as np
 import onnxruntime as ort
 import requests, json, time, mimetypes
+from gradio_client import Client
 from PIL import Image, ImageCms
 
 ROOT=Path(getattr(sys,"_MEIPASS",Path(__file__).resolve().parent))
@@ -286,6 +287,54 @@ def _download_result(base,value):
         raise RuntimeError(str(last))
     return None
 
+def _run_iclight_legacy_client(path,cfg,gw,gh,prompt,steps,cfg_scale,high_denoise,low_denoise):
+    # IC-Light Space pins Gradio 3.41.2, whose matching client is gradio_client 0.5.0.
+    client=Client("lllyasviel/IC-Light",verbose=False)
+    args=[
+        path,
+        prompt,
+        int(gw),
+        int(gh),
+        1,
+        12345,
+        int(steps),
+        "best quality, photorealistic, realistic texture, preserve subject identity and composition",
+        NEGATIVE,
+        float(cfg_scale),
+        1.5,
+        float(high_denoise),
+        float(low_denoise),
+        LIGHT_MAP[cfg["lightSource"]]
+    ]
+    # Older client versions can resolve the endpoint by api_name or fn_index.
+    last=None
+    try:
+        return client.predict(*args,api_name="/process_relight")
+    except Exception as ex:
+        last=ex
+    try:
+        # In this IC-Light app, the relight button dependency is typically the first
+        # user prediction endpoint exposed by the Blocks config.
+        return client.predict(*args,fn_index=0)
+    except Exception as ex:
+        last=ex
+    raise RuntimeError("Legacy IC-Light client failed: "+str(last))
+
+def _decode_client_output(result):
+    gallery=result[1] if isinstance(result,(list,tuple)) and len(result)>1 else result
+    found=_extract_remote_file(gallery)
+    if not found:
+        return None
+    kind,candidate=found
+    p=Path(candidate)
+    if p.exists():
+        gen=cv2.imread(str(p),cv2.IMREAD_COLOR)
+        if gen is None:
+            data=np.fromfile(str(p),dtype=np.uint8)
+            gen=cv2.imdecode(data,cv2.IMREAD_COLOR)
+        return gen
+    return None
+
 def run_iclight(path,cfg):
     im=Image.open(path)
     w,h=im.size
@@ -317,39 +366,55 @@ def run_iclight(path,cfg):
     else:
         prompt += ", coherent scene-wide illumination affecting subject and environment"
 
+    legacy_error=None
+    try:
+        result=_run_iclight_legacy_client(
+            path,cfg,gw,gh,prompt,steps,cfg_scale,high_denoise,low_denoise
+        )
+        gen=_decode_client_output(result)
+        if gen is not None:
+            return gen
+        legacy_error=RuntimeError("legacy client returned no local output file")
+    except Exception as ex:
+        legacy_error=ex
+
+    # Fallback: direct HTTP for temporary public-Space changes.
     base="https://lllyasviel-ic-light.hf.space"
-    uploaded=_upload_to_space(base,path)
-    data=[
-        uploaded,
-        prompt,
-        int(gw),
-        int(gh),
-        1,
-        12345,
-        int(steps),
-        "best quality, photorealistic, realistic texture, preserve subject identity and composition",
-        NEGATIVE,
-        float(cfg_scale),
-        1.5,
-        float(high_denoise),
-        float(low_denoise),
-        LIGHT_MAP[cfg["lightSource"]]
-    ]
-    result=_gradio_call(base,"process_relight",data)
+    try:
+        uploaded=_upload_to_space(base,path)
+        data=[
+            uploaded,
+            prompt,
+            int(gw),
+            int(gh),
+            1,
+            12345,
+            int(steps),
+            "best quality, photorealistic, realistic texture, preserve subject identity and composition",
+            NEGATIVE,
+            float(cfg_scale),
+            1.5,
+            float(high_denoise),
+            float(low_denoise),
+            LIGHT_MAP[cfg["lightSource"]]
+        ]
+        result=_gradio_call(base,"process_relight",data)
+        gallery=result[1] if isinstance(result,(list,tuple)) and len(result)>1 else result
+        out_path=_download_result(base,gallery)
+        if out_path:
+            gen=cv2.imread(out_path,cv2.IMREAD_COLOR)
+            if gen is None:
+                data_bytes=np.fromfile(out_path,dtype=np.uint8)
+                gen=cv2.imdecode(data_bytes,cv2.IMREAD_COLOR)
+            if gen is not None:
+                return gen
+    except Exception as direct_error:
+        raise RuntimeError(
+            "IC-Light service failed. Legacy client: "+str(legacy_error)[:260]+
+            " | Direct fallback: "+str(direct_error)[:260]
+        )
 
-    # process_relight returns [preprocessed_foreground, gallery].
-    gallery=result[1] if isinstance(result,(list,tuple)) and len(result)>1 else result
-    out_path=_download_result(base,gallery)
-    if not out_path:
-        raise RuntimeError("IC-Light public Space returned no downloadable image")
-
-    gen=cv2.imread(out_path,cv2.IMREAD_COLOR)
-    if gen is None:
-        data_bytes=np.fromfile(out_path,dtype=np.uint8)
-        gen=cv2.imdecode(data_bytes,cv2.IMREAD_COLOR)
-    if gen is None:
-        raise ValueError("Cannot decode IC-Light output")
-    return gen
+    raise RuntimeError("IC-Light service returned no image")
 
 def local_tone_map(orig,gen,alpha,face,cfg):
     h,w=orig.shape[:2]
