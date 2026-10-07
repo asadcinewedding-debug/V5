@@ -133,23 +133,30 @@ def fit_generation_size(w,h):
     nw=min(nw,1024); nh=min(nh,1024)
     return nw,nh
 
-def _first_string(value):
-    if isinstance(value,str) and value:
-        return value
+def _extract_remote_file(value):
+    # Prefer an explicit URL returned by modern Gradio FileData.
     if isinstance(value,dict):
-        for k in ("path","name","url"):
-            v=value.get(k)
-            if isinstance(v,str) and v:
-                return v
+        url=value.get("url")
+        if isinstance(url,str) and url:
+            return ("url",url)
+        path=value.get("path") or value.get("name")
+        if isinstance(path,str) and path:
+            return ("path",path)
         for v in value.values():
-            s=_first_string(v)
-            if s:
-                return s
+            found=_extract_remote_file(v)
+            if found:
+                return found
+        return None
     if isinstance(value,(list,tuple)):
         for v in value:
-            s=_first_string(v)
-            if s:
-                return s
+            found=_extract_remote_file(v)
+            if found:
+                return found
+        return None
+    if isinstance(value,str) and value:
+        if value.startswith("http://") or value.startswith("https://"):
+            return ("url",value)
+        return ("path",value)
     return None
 
 def _upload_to_space(base,path):
@@ -170,7 +177,8 @@ def _upload_to_space(base,path):
             )
     r.raise_for_status()
     payload=r.json()
-    remote=_first_string(payload)
+    found=_extract_remote_file(payload)
+    remote=found[1] if found else None
     if not remote:
         raise RuntimeError("IC-Light upload returned no remote file path")
     return {
@@ -234,21 +242,48 @@ def _gradio_call(base,api_name,data):
             last=e
     raise RuntimeError(str(last) if last else "IC-Light public Space request failed")
 
-def _download_result(value):
-    candidate=_first_string(value)
-    if not candidate:
+def _download_result(base,value):
+    found=_extract_remote_file(value)
+    if not found:
         return None
+    kind,candidate=found
+
     p=Path(candidate)
     if p.exists():
         return str(p)
-    if candidate.startswith("http://") or candidate.startswith("https://"):
-        r=requests.get(candidate,timeout=180)
-        r.raise_for_status()
-        suffix=Path(candidate.split("?",1)[0]).suffix or ".png"
-        fd,tmp=tempfile.mkstemp(suffix=suffix)
-        os.close(fd)
-        Path(tmp).write_bytes(r.content)
-        return tmp
+
+    urls=[]
+    if kind=="url":
+        urls.append(candidate)
+    else:
+        # Modern + older Gradio file routes.
+        from urllib.parse import quote
+        encoded=quote(candidate,safe="/:")
+        urls.extend([
+            base+"/gradio_api/file="+encoded,
+            base+"/file="+encoded
+        ])
+
+    last=None
+    for url in urls:
+        try:
+            r=requests.get(url,timeout=180)
+            if r.status_code>=400:
+                last=RuntimeError(f"IC-Light file download HTTP {r.status_code}")
+                continue
+            ctype=(r.headers.get("content-type") or "").lower()
+            if "text/html" in ctype and len(r.content)<200000:
+                last=RuntimeError("IC-Light returned HTML instead of an image")
+                continue
+            suffix=Path(candidate.split("?",1)[0]).suffix or ".png"
+            fd,tmp=tempfile.mkstemp(suffix=suffix)
+            os.close(fd)
+            Path(tmp).write_bytes(r.content)
+            return tmp
+        except Exception as e:
+            last=e
+    if last:
+        raise RuntimeError(str(last))
     return None
 
 def run_iclight(path,cfg):
@@ -304,7 +339,7 @@ def run_iclight(path,cfg):
 
     # process_relight returns [preprocessed_foreground, gallery].
     gallery=result[1] if isinstance(result,(list,tuple)) and len(result)>1 else result
-    out_path=_download_result(gallery)
+    out_path=_download_result(base,gallery)
     if not out_path:
         raise RuntimeError("IC-Light public Space returned no downloadable image")
 
